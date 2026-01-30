@@ -1,0 +1,227 @@
+import { Page, IPage } from '../models/Page.model';
+import { Version } from '../models/Version.model';
+import { AppError } from '../middleware/error.middleware';
+import { PageJSON } from '../types/page.types';
+
+export class PageService {
+  // Get all pages for an institution
+  async getAllPages(institutionId: string): Promise<IPage[]> {
+    return Page.find({ institutionId })
+      .sort({ updatedAt: -1 })
+      .populate('updatedBy', 'name email');
+  }
+
+  // Get page by ID
+  async getPageById(pageId: string, institutionId: string): Promise<IPage> {
+    const page = await Page.findOne({ _id: pageId, institutionId })
+      .populate('updatedBy', 'name email');
+
+    if (!page) {
+      throw new AppError('Page not found', 404, 'PAGE_NOT_FOUND');
+    }
+
+    return page;
+  }
+
+  // Get page by slug
+  async getPageBySlug(slug: string, institutionId: string): Promise<IPage> {
+    const page = await Page.findOne({ slug, institutionId });
+
+    if (!page) {
+      throw new AppError('Page not found', 404, 'PAGE_NOT_FOUND');
+    }
+
+    return page;
+  }
+
+  // Create new page
+  async createPage(data: {
+    institutionId: string;
+    name: string;
+    slug: string;
+    userId: string;
+  }): Promise<IPage> {
+    // Check if slug already exists
+    const existingPage = await Page.findOne({
+      institutionId: data.institutionId,
+      slug: data.slug,
+    });
+
+    if (existingPage) {
+      throw new AppError('Page with this slug already exists', 409, 'DUPLICATE_SLUG');
+    }
+
+    // Create page with default config
+    const page = await Page.create({
+      institutionId: data.institutionId,
+      name: data.name,
+      slug: data.slug,
+      jsonConfig: {
+        components: [],
+        meta: {
+          title: data.name,
+          description: '',
+          keywords: [],
+        },
+      },
+      updatedBy: data.userId,
+    });
+
+    // Create initial version
+    await Version.create({
+      pageId: page._id,
+      versionNumber: 1,
+      jsonConfig: page.jsonConfig,
+      changes: 'Initial version',
+      createdBy: data.userId,
+    });
+
+    return page;
+  }
+
+  // Update page JSON config
+  async updatePage(
+    pageId: string,
+    institutionId: string,
+    userId: string,
+    jsonConfig: PageJSON,
+    changes?: string
+  ): Promise<IPage> {
+    const page = await Page.findOne({ _id: pageId, institutionId });
+
+    if (!page) {
+      throw new AppError('Page not found', 404, 'PAGE_NOT_FOUND');
+    }
+
+    // Update page
+    page.jsonConfig = jsonConfig;
+    page.updatedBy = userId as any;
+    await page.save();
+
+    // Create new version
+    const latestVersion = await Version.findOne({ pageId })
+      .sort({ versionNumber: -1 });
+
+    const newVersionNumber = latestVersion ? latestVersion.versionNumber + 1 : 1;
+
+    await Version.create({
+      pageId: page._id,
+      versionNumber: newVersionNumber,
+      jsonConfig,
+      changes: changes || 'Updated page',
+      createdBy: userId,
+    });
+
+    return page;
+  }
+
+  // Publish page
+  async publishPage(pageId: string, institutionId: string): Promise<IPage> {
+    const page = await Page.findOne({ _id: pageId, institutionId });
+
+    if (!page) {
+      throw new AppError('Page not found', 404, 'PAGE_NOT_FOUND');
+    }
+
+    page.isPublished = true;
+    await page.save();
+
+    return page;
+  }
+
+  // Unpublish page
+  async unpublishPage(pageId: string, institutionId: string): Promise<IPage> {
+    const page = await Page.findOne({ _id: pageId, institutionId });
+
+    if (!page) {
+      throw new AppError('Page not found', 404, 'PAGE_NOT_FOUND');
+    }
+
+    page.isPublished = false;
+    await page.save();
+
+    return page;
+  }
+
+  // Delete page
+  async deletePage(pageId: string, institutionId: string): Promise<void> {
+    const page = await Page.findOne({ _id: pageId, institutionId });
+
+    if (!page) {
+      throw new AppError('Page not found', 404, 'PAGE_NOT_FOUND');
+    }
+
+    // Delete all versions
+    await Version.deleteMany({ pageId });
+
+    // Delete page
+    await page.deleteOne();
+  }
+
+  // Duplicate page
+  async duplicatePage(
+    pageId: string,
+    institutionId: string,
+    userId: string,
+    newName: string,
+    newSlug: string
+  ): Promise<IPage> {
+    const originalPage = await Page.findOne({ _id: pageId, institutionId });
+
+    if (!originalPage) {
+      throw new AppError('Page not found', 404, 'PAGE_NOT_FOUND');
+    }
+
+    // Check if new slug already exists
+    const existingPage = await Page.findOne({
+      institutionId,
+      slug: newSlug,
+    });
+
+    if (existingPage) {
+      throw new AppError('Page with this slug already exists', 409, 'DUPLICATE_SLUG');
+    }
+
+    // Create duplicate
+    const duplicatePage = await Page.create({
+      institutionId,
+      name: newName,
+      slug: newSlug,
+      jsonConfig: originalPage.jsonConfig,
+      isPublished: false,
+      updatedBy: userId,
+    });
+
+    // Create initial version
+    await Version.create({
+      pageId: duplicatePage._id,
+      versionNumber: 1,
+      jsonConfig: duplicatePage.jsonConfig,
+      changes: `Duplicated from ${originalPage.name}`,
+      createdBy: userId,
+    });
+
+    return duplicatePage;
+  }
+
+  // Get published pages (public)
+  async getPublishedPages(institutionId: string): Promise<IPage[]> {
+    return Page.find({ institutionId, isPublished: true })
+      .select('name slug jsonConfig')
+      .sort({ updatedAt: -1 });
+  }
+
+  // Get published page by slug (public)
+  async getPublishedPageBySlug(slug: string, institutionId: string): Promise<IPage> {
+    const page = await Page.findOne({ slug, institutionId, isPublished: true })
+      .select('name slug jsonConfig');
+
+    if (!page) {
+      throw new AppError('Page not found', 404, 'PAGE_NOT_FOUND');
+    }
+
+    return page;
+  }
+}
+
+export default new PageService();

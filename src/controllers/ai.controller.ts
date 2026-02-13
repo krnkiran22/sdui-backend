@@ -15,9 +15,9 @@ export class AIController {
     const result = await aiService.processCommand(command, context);
 
     if (result.success) {
-      sendSuccess(res, result.operation, 'Command processed successfully');
+      return sendSuccess(res, result.operation, 'Command processed successfully');
     } else {
-      sendError(res, result.error || 'Failed to process command', 500);
+      return sendError(res, result.error || 'Failed to process command', 500);
     }
   });
 
@@ -32,9 +32,9 @@ export class AIController {
     const result = await aiService.generateContent(type, params);
 
     if (result.success) {
-      sendSuccess(res, { content: result.content }, 'Content generated successfully');
+      return sendSuccess(res, { content: result.content }, 'Content generated successfully');
     } else {
-      sendError(res, result.error || 'Failed to generate content', 500);
+      return sendError(res, result.error || 'Failed to generate content', 500);
     }
   });
 
@@ -49,9 +49,9 @@ export class AIController {
     const result = await aiService.suggestImprovements(pageJSON);
 
     if (result.success) {
-      sendSuccess(res, result.suggestions, 'Suggestions generated successfully');
+      return sendSuccess(res, result.suggestions, 'Suggestions generated successfully');
     } else {
-      sendError(res, result.error || 'Failed to generate suggestions', 500);
+      return sendError(res, result.error || 'Failed to generate suggestions', 500);
     }
   });
 
@@ -66,12 +66,12 @@ export class AIController {
     const result = await aiService.validateDesign(pageJSON);
 
     if (result.success) {
-      sendSuccess(res, {
+      return sendSuccess(res, {
         isValid: result.isValid,
         issues: result.issues,
       }, 'Validation completed');
     } else {
-      sendError(res, result.error || 'Failed to validate design', 500);
+      return sendError(res, result.error || 'Failed to validate design', 500);
     }
   });
 }

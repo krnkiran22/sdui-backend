@@ -41,9 +41,9 @@ if (env.nodeEnv === 'development') {
 }
 
 // Health check
-app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
+app.get('/health', (_req, res) => {
+  res.json({
+    status: 'ok',
     timestamp: new Date().toISOString(),
     environment: env.nodeEnv,
   });
@@ -59,7 +59,7 @@ app.use('/api/versions', apiLimiter, versionRoutes);
 app.use('/api/public', publicRoutes); // No auth required
 
 // 404 handler
-app.use('*', (req, res) => {
+app.use('*', (_req, res) => {
   res.status(404).json({
     success: false,
     error: {

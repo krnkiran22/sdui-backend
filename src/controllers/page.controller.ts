@@ -12,7 +12,7 @@ export class PageController {
 
     const pages = await pageService.getAllPages(req.user.institutionId);
 
-    sendSuccess(res, pages);
+    return sendSuccess(res, pages);
   });
 
   // Get page by ID
@@ -24,7 +24,7 @@ export class PageController {
     const { id } = req.params;
     const page = await pageService.getPageById(id, req.user.institutionId);
 
-    sendSuccess(res, page);
+    return sendSuccess(res, page);
   });
 
   // Create page
@@ -42,7 +42,7 @@ export class PageController {
       userId: req.user.userId,
     });
 
-    sendSuccess(res, page, 'Page created successfully', 201);
+    return sendSuccess(res, page, 'Page created successfully', 201);
   });
 
   // Update page
@@ -62,7 +62,7 @@ export class PageController {
       changes
     );
 
-    sendSuccess(res, page, 'Page updated successfully');
+    return sendSuccess(res, page, 'Page updated successfully');
   });
 
   // Publish page
@@ -74,7 +74,7 @@ export class PageController {
     const { id } = req.params;
     const page = await pageService.publishPage(id, req.user.institutionId);
 
-    sendSuccess(res, page, 'Page published successfully');
+    return sendSuccess(res, page, 'Page published successfully');
   });
 
   // Unpublish page
@@ -86,7 +86,7 @@ export class PageController {
     const { id } = req.params;
     const page = await pageService.unpublishPage(id, req.user.institutionId);
 
-    sendSuccess(res, page, 'Page unpublished successfully');
+    return sendSuccess(res, page, 'Page unpublished successfully');
   });
 
   // Delete page
@@ -98,7 +98,7 @@ export class PageController {
     const { id } = req.params;
     await pageService.deletePage(id, req.user.institutionId);
 
-    sendSuccess(res, null, 'Page deleted successfully');
+    return sendSuccess(res, null, 'Page deleted successfully');
   });
 
   // Duplicate page
@@ -118,7 +118,7 @@ export class PageController {
       slug
     );
 
-    sendSuccess(res, page, 'Page duplicated successfully', 201);
+    return sendSuccess(res, page, 'Page duplicated successfully', 201);
   });
 
   // Get published pages (public)
@@ -131,13 +131,19 @@ export class PageController {
 
     const pages = await pageService.getPublishedPages(institutionId as string);
 
-    sendSuccess(res, pages);
+    return sendSuccess(res, pages);
   });
 
-  // Get published page by slug (public)
+  // Get published page by slug (public/authenticated)
   getPublishedPage = asyncHandler(async (req: Request, res: Response) => {
     const { slug } = req.params;
-    const { institutionId } = req.query;
+    let { institutionId } = req.query;
+
+    // If authenticated, we use the user's institutionId and show unpublished pages
+    if (req.user) {
+      const page = await pageService.getPageBySlug(slug, req.user.institutionId);
+      return sendSuccess(res, page);
+    }
 
     if (!institutionId) {
       return sendError(res, 'Institution ID required', 400);
@@ -148,7 +154,7 @@ export class PageController {
       institutionId as string
     );
 
-    sendSuccess(res, page);
+    return sendSuccess(res, page);
   });
 }
 

@@ -14,7 +14,7 @@ export class VersionController {
 
     const versions = await versionService.getVersionHistory(pageId);
 
-    sendSuccess(res, versions);
+    return sendSuccess(res, versions);
   });
 
   // Get specific version
@@ -27,7 +27,7 @@ export class VersionController {
 
     const version = await versionService.getVersion(pageId, parseInt(versionNumber));
 
-    sendSuccess(res, version);
+    return sendSuccess(res, version);
   });
 
   // Restore version
@@ -44,7 +44,7 @@ export class VersionController {
       req.user.userId
     );
 
-    sendSuccess(res, null, 'Version restored successfully');
+    return sendSuccess(res, null, 'Version restored successfully');
   });
 }
 

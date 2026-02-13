@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { body, param } from 'express-validator';
 import pageController from '../controllers/page.controller';
 import { validate } from '../middleware/validate.middleware';
-import { authenticate } from '../middleware/auth.middleware';
+import { authenticate, optionalAuthenticate } from '../middleware/auth.middleware';
 import { authorize } from '../middleware/rbac.middleware';
 
 const router = Router();
@@ -96,6 +96,16 @@ router.post(
       .withMessage('Slug must contain only lowercase letters, numbers, and hyphens'),
   ]),
   pageController.duplicatePage
+);
+
+// Get published page by slug (public/authenticated)
+router.get(
+  '/slug/:slug',
+  optionalAuthenticate,
+  validate([
+    param('slug').trim().notEmpty().withMessage('Slug is required'),
+  ]),
+  pageController.getPublishedPage
 );
 
 export default router;

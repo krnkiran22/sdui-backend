@@ -20,7 +20,7 @@ export class MediaController {
       req.user.userId
     );
 
-    sendSuccess(res, media, 'File uploaded successfully', 201);
+    return sendSuccess(res, media, 'File uploaded successfully', 201);
   });
 
   // Get all media
@@ -31,7 +31,7 @@ export class MediaController {
 
     const media = await mediaService.getAllMedia(req.user.institutionId);
 
-    sendSuccess(res, media);
+    return sendSuccess(res, media);
   });
 
   // Delete media
@@ -43,7 +43,7 @@ export class MediaController {
     const { id } = req.params;
     await mediaService.deleteMedia(id, req.user.institutionId);
 
-    sendSuccess(res, null, 'Media deleted successfully');
+    return sendSuccess(res, null, 'Media deleted successfully');
   });
 }
 

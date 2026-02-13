@@ -15,7 +15,7 @@ export class AuthController {
       subdomain,
     });
 
-    sendSuccess(
+    return sendSuccess(
       res,
       {
         user: {
@@ -43,7 +43,7 @@ export class AuthController {
 
     const result = await authService.login(email, password);
 
-    sendSuccess(res, {
+    return sendSuccess(res, {
       user: {
         id: result.user._id,
         name: result.user.name,
@@ -62,7 +62,7 @@ export class AuthController {
 
     const tokens = await authService.refreshToken(refreshToken);
 
-    sendSuccess(res, tokens);
+    return sendSuccess(res, tokens);
   });
 
   // Get current user
@@ -77,7 +77,7 @@ export class AuthController {
       return sendError(res, 'User not found', 404);
     }
 
-    sendSuccess(res, {
+    return sendSuccess(res, {
       id: user._id,
       name: user.name,
       email: user.email,
@@ -102,7 +102,7 @@ export class AuthController {
       role,
     });
 
-    sendSuccess(
+    return sendSuccess(
       res,
       {
         id: user._id,

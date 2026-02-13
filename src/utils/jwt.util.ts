@@ -3,14 +3,14 @@ import env from '../config/env';
 import { JWTPayload, AuthTokens } from '../types/auth.types';
 
 export const generateAccessToken = (payload: JWTPayload): string => {
-  return jwt.sign(payload, env.jwtSecret, {
-    expiresIn: env.jwtExpiresIn,
+  return jwt.sign(payload, env.jwtSecret as jwt.Secret, {
+    expiresIn: env.jwtExpiresIn as any,
   });
 };
 
 export const generateRefreshToken = (payload: JWTPayload): string => {
-  return jwt.sign(payload, env.jwtRefreshSecret, {
-    expiresIn: env.jwtRefreshExpiresIn,
+  return jwt.sign(payload, env.jwtRefreshSecret as jwt.Secret, {
+    expiresIn: env.jwtRefreshExpiresIn as any,
   });
 };
 

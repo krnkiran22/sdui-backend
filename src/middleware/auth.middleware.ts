@@ -42,3 +42,30 @@ export const authenticate = async (
     return;
   }
 };
+export const optionalAuthenticate = async (
+  req: Request,
+  _res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return next(); // Proceed without req.user
+    }
+
+    const token = authHeader.substring(7);
+
+    try {
+      const decoded = verifyAccessToken(token);
+      req.user = decoded;
+      next();
+    } catch (error) {
+      // Invalid token - we could either error or just proceed without user
+      // For optional auth, usually we just proceed without user
+      next();
+    }
+  } catch (error) {
+    next();
+  }
+};

@@ -10,7 +10,7 @@ export class TemplateController {
 
     const templates = await templateService.getAllTemplates(category as string);
 
-    sendSuccess(res, templates);
+    return sendSuccess(res, templates);
   });
 
   // Get template by ID
@@ -19,7 +19,7 @@ export class TemplateController {
 
     const template = await templateService.getTemplateById(id);
 
-    sendSuccess(res, template);
+    return sendSuccess(res, template);
   });
 
   // Create template
@@ -40,7 +40,7 @@ export class TemplateController {
       userId: req.user.userId,
     });
 
-    sendSuccess(res, template, 'Template created successfully', 201);
+    return sendSuccess(res, template, 'Template created successfully', 201);
   });
 
   // Apply template
@@ -53,7 +53,7 @@ export class TemplateController {
 
     const jsonConfig = await templateService.applyTemplate(id);
 
-    sendSuccess(res, jsonConfig, 'Template applied successfully');
+    return sendSuccess(res, jsonConfig, 'Template applied successfully');
   });
 }
 

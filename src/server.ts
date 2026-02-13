@@ -78,11 +78,19 @@ const startServer = async (): Promise<void> => {
     // Connect to MongoDB
     await connectDatabase();
 
-    // Connect to Redis
-    await connectRedis();
+    // Connect to Redis (Optional for MVP)
+    if (process.env.REDIS_URL) {
+      await connectRedis();
+    } else {
+      console.warn('⚠️ Redis URL not configured. Skipping Redis connection.');
+    }
 
-    // Configure Cloudinary
-    configureCloudinary();
+    // Configure Cloudinary (Optional for MVP)
+    if (env.cloudinary.cloudName && env.cloudinary.apiKey) {
+      configureCloudinary();
+    } else {
+      console.warn('⚠️ Cloudinary not configured. Skipping Cloudinary configuration.');
+    }
 
     // Start Express server
     app.listen(env.port, () => {

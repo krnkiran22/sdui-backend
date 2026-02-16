@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import aiService from '../services/ai.service';
+import { CustomComponent } from '../models/CustomComponent.model';
 import { sendSuccess, sendError } from '../utils/response.util';
 import { asyncHandler } from '../middleware/error.middleware';
 
@@ -73,6 +74,51 @@ export class AIController {
     } else {
       return sendError(res, result.error || 'Failed to validate design', 500);
     }
+  });
+
+  // Generate and save a custom component
+  generateCustomComponent = asyncHandler(async (req: Request, res: Response) => {
+    if (!req.user) {
+      return sendError(res, 'Unauthorized', 401);
+    }
+
+    const { prompt } = req.body;
+
+    if (!prompt) {
+      return sendError(res, 'Prompt is required', 400);
+    }
+
+    const result = await aiService.generateComponent(prompt);
+
+    if (result.success && result.component) {
+      // Save the generated component to the database
+      const component = await CustomComponent.create({
+        institutionId: req.user.institutionId,
+        name: result.component.name,
+        description: result.component.description,
+        type: result.component.type,
+        props: result.component.props,
+        jsxCode: result.component.jsxCode,
+        createdBy: req.user.userId,
+      });
+
+      return sendSuccess(res, component, 'Component generated and saved successfully', 201);
+    } else {
+      return sendError(res, result.error || 'Failed to generate component', 500);
+    }
+  });
+
+  // Get all custom components for an institution
+  getCustomComponents = asyncHandler(async (req: Request, res: Response) => {
+    if (!req.user) {
+      return sendError(res, 'Unauthorized', 401);
+    }
+
+    const components = await CustomComponent.find({
+      institutionId: req.user.institutionId,
+    }).sort({ createdAt: -1 });
+
+    return sendSuccess(res, components);
   });
 }
 

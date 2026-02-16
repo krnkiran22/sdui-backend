@@ -121,37 +121,42 @@ export class PageController {
     return sendSuccess(res, page, 'Page duplicated successfully', 201);
   });
 
-  // Get published pages (public)
+  // Get all published pages (public)
   getPublishedPages = asyncHandler(async (req: Request, res: Response) => {
-    const { institutionId } = req.query;
-
-    if (!institutionId) {
-      return sendError(res, 'Institution ID required', 400);
-    }
-
-    const pages = await pageService.getPublishedPages(institutionId as string);
-
+    const institutionId = req.query.institutionId as string | undefined;
+    const pages = await pageService.getPublishedPages(institutionId);
     return sendSuccess(res, pages);
   });
 
   // Get published page by slug (public/authenticated)
   getPublishedPage = asyncHandler(async (req: Request, res: Response) => {
     const { slug } = req.params;
-    let { institutionId } = req.query;
+    let institutionId = (req.query.institutionId as string) || (req.headers['x-institution-id'] as string);
 
-    // If authenticated, we use the user's institutionId and show unpublished pages
+    // If authenticated, we use the user's institutionId
     if (req.user) {
-      const page = await pageService.getPageBySlug(slug, req.user.institutionId);
-      return sendSuccess(res, page);
+      institutionId = req.user.institutionId;
+
+      // Admins and editors can see unpublished pages
+      if (req.user.role !== 'viewer') {
+        const page = await pageService.getPageBySlug(slug, institutionId);
+        return sendSuccess(res, page);
+      }
     }
 
+    // Try finding the page globally if no ID provided
     if (!institutionId) {
-      return sendError(res, 'Institution ID required', 400);
+      try {
+        const page = await pageService.getPageBySlugGlobal(slug);
+        return sendSuccess(res, page);
+      } catch (e) {
+        return sendError(res, 'Page not found', 404);
+      }
     }
 
     const page = await pageService.getPublishedPageBySlug(
       slug,
-      institutionId as string
+      institutionId
     );
 
     return sendSuccess(res, page);

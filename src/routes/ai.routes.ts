@@ -53,4 +53,22 @@ router.post(
   aiController.validateDesign
 );
 
+// Generate custom component
+router.post(
+  '/generate-component',
+  authenticate,
+  aiLimiter,
+  validate([
+    body('prompt').trim().notEmpty().withMessage('Prompt is required'),
+  ]),
+  aiController.generateCustomComponent
+);
+
+// Get custom components
+router.get(
+  '/custom-components',
+  authenticate,
+  aiController.getCustomComponents
+);
+
 export default router;

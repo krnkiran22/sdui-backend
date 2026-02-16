@@ -18,11 +18,12 @@ interface EnvConfig {
   };
   anthropicApiKey?: string;
   openaiApiKey?: string;
+  groqApiKey?: string;
   allowedOrigins: string[];
 }
 
 const env: EnvConfig = {
-  port: parseInt(process.env.PORT || '5000', 10),
+  port: parseInt(process.env.PORT || '5001', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
   mongoUri: process.env.MONGODB_URI || '',
   redisUrl: process.env.REDIS_URL || '',
@@ -37,6 +38,7 @@ const env: EnvConfig = {
   },
   anthropicApiKey: process.env.ANTHROPIC_API_KEY,
   openaiApiKey: process.env.OPENAI_API_KEY,
+  groqApiKey: process.env.GROQ_API_KEY,
   allowedOrigins: (process.env.ALLOWED_ORIGINS || 'http://localhost:3000').split(','),
 };
 
@@ -49,7 +51,7 @@ const validateEnv = () => {
     throw new Error(`Missing required environment variables: ${missingEnvVars.join(', ')}`);
   }
 
-  if (!env.anthropicApiKey && !env.openaiApiKey) {
+  if (!env.anthropicApiKey && !env.openaiApiKey && !env.groqApiKey) {
     console.warn('Warning: No AI API key configured. AI features will be disabled.');
   }
 };

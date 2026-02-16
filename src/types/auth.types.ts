@@ -1,4 +1,4 @@
-export type UserRole = 'super-admin' | 'editor' | 'viewer';
+export type UserRole = 'super-admin' | 'admin' | 'editor' | 'viewer';
 
 export interface JWTPayload {
   userId: string;

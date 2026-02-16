@@ -1,19 +1,50 @@
 import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 import env from '../config/env';
 import { AppError } from '../middleware/error.middleware';
 import { PageJSON } from '../types/page.types';
 
 export class AIService {
   private anthropic: Anthropic | null = null;
+  private groq: OpenAI | null = null;
 
   constructor() {
     if (env.anthropicApiKey) {
       this.anthropic = new Anthropic({
         apiKey: env.anthropicApiKey,
       });
-    } else {
-      console.warn('⚠️ Anthropic API key not configured. AI features will be disabled.');
     }
+
+    if (env.groqApiKey) {
+      this.groq = new OpenAI({
+        apiKey: env.groqApiKey,
+        baseURL: 'https://api.groq.com/openai/v1',
+      });
+    }
+
+    if (!this.anthropic && !this.groq) {
+      console.warn('⚠️ No AI API keys configured. AI features will be disabled.');
+    }
+  }
+
+  private async getChatCompletion(prompt: string, jsonMode: boolean = false): Promise<string> {
+    if (this.anthropic) {
+      const message = await this.anthropic.messages.create({
+        model: 'claude-3-5-sonnet-20241022',
+        max_tokens: jsonMode ? 2000 : 1000,
+        messages: [{ role: 'user', content: prompt }],
+      });
+      return message.content[0].type === 'text' ? message.content[0].text : '';
+    } else if (this.groq) {
+      console.log(`Calling Groq using model: openai/gpt-oss-20b ${jsonMode ? '(JSON Mode)' : ''}`);
+      const response = await this.groq.chat.completions.create({
+        model: 'openai/gpt-oss-20b',
+        messages: [{ role: 'user', content: prompt }],
+        response_format: jsonMode ? { type: 'json_object' } : undefined,
+      });
+      return response.choices[0].message.content || '';
+    }
+    throw new AppError('AI service not configured', 503, 'AI_NOT_CONFIGURED');
   }
 
   // Process natural language command
@@ -22,10 +53,6 @@ export class AIService {
     operation?: any;
     error?: string;
   }> {
-    if (!this.anthropic) {
-      throw new AppError('AI service not configured', 503, 'AI_NOT_CONFIGURED');
-    }
-
     try {
       const prompt = `You are an AI assistant for a website builder.
     
@@ -48,28 +75,13 @@ Response format:
 
 Only respond with valid JSON, no explanations.`;
 
-      const message = await this.anthropic.messages.create({
-        model: 'claude-3-5-sonnet-20241022',
-        max_tokens: 1024,
-        messages: [
-          { role: 'user', content: prompt }
-        ],
-      });
+      const responseText = await this.getChatCompletion(prompt, true);
+      const jsonOperation = JSON.parse(responseText);
 
-      const responseText = message.content[0].type === 'text' ? message.content[0].text : '';
-
-      try {
-        const jsonOperation = JSON.parse(responseText);
-        return {
-          success: true,
-          operation: jsonOperation,
-        };
-      } catch (parseError) {
-        return {
-          success: false,
-          error: 'Failed to parse AI response',
-        };
-      }
+      return {
+        success: true,
+        operation: jsonOperation,
+      };
     } catch (error) {
       console.error('AI command processing error:', error);
       return {
@@ -85,10 +97,6 @@ Only respond with valid JSON, no explanations.`;
     content?: string;
     error?: string;
   }> {
-    if (!this.anthropic) {
-      throw new AppError('AI service not configured', 503, 'AI_NOT_CONFIGURED');
-    }
-
     try {
       let prompt = '';
 
@@ -140,15 +148,7 @@ Include education, research interests, and achievements.`;
           prompt = `Generate professional content for: ${JSON.stringify(params)}`;
       }
 
-      const message = await this.anthropic.messages.create({
-        model: 'claude-3-5-sonnet-20241022',
-        max_tokens: 500,
-        messages: [
-          { role: 'user', content: prompt }
-        ],
-      });
-
-      const content = message.content[0].type === 'text' ? message.content[0].text : '';
+      const content = await this.getChatCompletion(prompt);
 
       return {
         success: true,
@@ -169,10 +169,6 @@ Include education, research interests, and achievements.`;
     suggestions?: any[];
     error?: string;
   }> {
-    if (!this.anthropic) {
-      throw new AppError('AI service not configured', 503, 'AI_NOT_CONFIGURED');
-    }
-
     try {
       const prompt = `Analyze this website page structure and suggest improvements:
 
@@ -198,28 +194,13 @@ Respond with JSON array of suggestions:
 
 Only respond with valid JSON array.`;
 
-      const message = await this.anthropic.messages.create({
-        model: 'claude-3-5-sonnet-20241022',
-        max_tokens: 2000,
-        messages: [
-          { role: 'user', content: prompt }
-        ],
-      });
+      const responseText = await this.getChatCompletion(prompt, true);
+      const suggestions = JSON.parse(responseText);
 
-      const responseText = message.content[0].type === 'text' ? message.content[0].text : '';
-
-      try {
-        const suggestions = JSON.parse(responseText);
-        return {
-          success: true,
-          suggestions,
-        };
-      } catch (parseError) {
-        return {
-          success: false,
-          error: 'Failed to parse suggestions',
-        };
-      }
+      return {
+        success: true,
+        suggestions,
+      };
     } catch (error) {
       console.error('Suggestion generation error:', error);
       return {
@@ -236,10 +217,6 @@ Only respond with valid JSON array.`;
     issues?: any[];
     error?: string;
   }> {
-    if (!this.anthropic) {
-      throw new AppError('AI service not configured', 503, 'AI_NOT_CONFIGURED');
-    }
-
     try {
       const prompt = `Validate this website page for compliance and best practices:
 
@@ -266,34 +243,85 @@ Respond with JSON:
 
 Only respond with valid JSON.`;
 
-      const message = await this.anthropic.messages.create({
-        model: 'claude-3-5-sonnet-20241022',
-        max_tokens: 1500,
-        messages: [
-          { role: 'user', content: prompt }
-        ],
-      });
+      const responseText = await this.getChatCompletion(prompt, true);
+      const validation = JSON.parse(responseText);
 
-      const responseText = message.content[0].type === 'text' ? message.content[0].text : '';
-
-      try {
-        const validation = JSON.parse(responseText);
-        return {
-          success: true,
-          isValid: validation.isValid,
-          issues: validation.issues,
-        };
-      } catch (parseError) {
-        return {
-          success: false,
-          error: 'Failed to parse validation response',
-        };
-      }
+      return {
+        success: true,
+        isValid: validation.isValid,
+        issues: validation.issues,
+      };
     } catch (error) {
       console.error('Design validation error:', error);
       return {
         success: false,
         error: 'Failed to validate design',
+      };
+    }
+  }
+
+  // Generate a new component using Groq
+  async generateComponent(prompt: string): Promise<{
+    success: boolean;
+    component?: {
+      name: string;
+      description: string;
+      type: string;
+      props: any;
+      jsxCode: string;
+    };
+    error?: string;
+  }> {
+    if (!this.groq) {
+      throw new AppError('Groq AI service not configured', 503, 'AI_NOT_CONFIGURED');
+    }
+
+    try {
+      const systemPrompt = `You are an expert React and Craft.js developer.
+Generate a new reusable component based on the user's request.
+The component should be compatible with Craft.js.
+
+Response MUST be a JSON object with this exact structure:
+{
+  "name": "Readable Name",
+  "description": "Short description of what it does",
+  "type": "Button",
+  "props": {
+    "title": "...",
+    "subtitle": "...",
+    "content": "...",
+    "backgroundColor": "...",
+    "textColor": "...",
+    "alignment": "left|center|right"
+  },
+  "jsxCode": "..."
+}
+
+You can use these existing types: HeroBanner, TextBlock, Container, AboutSection, Statistics, FacultyGrid, FAQAccordion, ContactForm, DynamicSection, Button.
+Only return valid JSON. Do not include markdown code blocks or explanations.`;
+
+      console.log(`Generating component with Groq using model: openai/gpt-oss-20b`);
+      const response = await this.groq.chat.completions.create({
+        model: 'openai/gpt-oss-20b',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: prompt }
+        ],
+        response_format: { type: 'json_object' }
+      });
+
+      const responseText = response.choices[0].message.content || '{}';
+      const componentData = JSON.parse(responseText);
+
+      return {
+        success: true,
+        component: componentData,
+      };
+    } catch (error) {
+      console.error('Groq component generation error:', error);
+      return {
+        success: false,
+        error: 'Failed to generate component using Groq',
       };
     }
   }

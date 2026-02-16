@@ -57,13 +57,24 @@ export class PageService {
       name: data.name,
       slug: data.slug,
       jsonConfig: {
-        components: [],
-        meta: {
-          title: data.name,
-          description: '',
-          keywords: [],
+        ROOT: {
+          type: {
+            resolvedName: 'Container',
+          },
+          isCanvas: true,
+          props: {
+            backgroundColor: '#ffffff',
+            padding: '40px',
+            minHeight: '800px',
+          },
+          displayName: 'Container',
+          custom: {},
+          hidden: false,
+          nodes: [],
+          linkedNodes: {},
         },
       },
+      isPublished: true,
       updatedBy: data.userId,
     });
 
@@ -205,9 +216,10 @@ export class PageService {
   }
 
   // Get published pages (public)
-  async getPublishedPages(institutionId: string): Promise<IPage[]> {
-    return Page.find({ institutionId, isPublished: true })
-      .select('name slug jsonConfig')
+  async getPublishedPages(institutionId?: string): Promise<IPage[]> {
+    const query = institutionId ? { institutionId, isPublished: true } : { isPublished: true };
+    return Page.find(query)
+      .select('name slug jsonConfig institutionId')
       .sort({ updatedAt: -1 });
   }
 
@@ -215,6 +227,18 @@ export class PageService {
   async getPublishedPageBySlug(slug: string, institutionId: string): Promise<IPage> {
     const page = await Page.findOne({ slug, institutionId, isPublished: true })
       .select('name slug jsonConfig');
+
+    if (!page) {
+      throw new AppError('Page not found', 404, 'PAGE_NOT_FOUND');
+    }
+
+    return page;
+  }
+
+  // Get any published page by slug globally (cross-institution lookup)
+  async getPageBySlugGlobal(slug: string): Promise<IPage> {
+    const page = await Page.findOne({ slug, isPublished: true })
+      .select('name slug jsonConfig institutionId');
 
     if (!page) {
       throw new AppError('Page not found', 404, 'PAGE_NOT_FOUND');

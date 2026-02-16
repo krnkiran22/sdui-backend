@@ -83,7 +83,7 @@ export class AuthService {
     // Generate tokens
     const payload: JWTPayload = {
       userId: user._id.toString(),
-      institutionId: user.institutionId.toString(),
+      institutionId: user.institutionId._id ? user.institutionId._id.toString() : user.institutionId.toString(),
       role: user.role,
       email: user.email,
     };
@@ -109,7 +109,7 @@ export class AuthService {
       // Generate new tokens
       const payload: JWTPayload = {
         userId: user._id.toString(),
-        institutionId: user.institutionId.toString(),
+        institutionId: user.institutionId._id ? user.institutionId._id.toString() : user.institutionId.toString(),
         role: user.role,
         email: user.email,
       };
@@ -153,6 +153,11 @@ export class AuthService {
   // Get user by ID
   async getUserById(userId: string): Promise<IUser | null> {
     return User.findById(userId).select('-passwordHash');
+  }
+
+  // Get all institutions (public info)
+  async getAllInstitutions(): Promise<IInstitution[]> {
+    return Institution.find().select('name subdomain settings');
   }
 }
 

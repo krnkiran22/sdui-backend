@@ -49,7 +49,7 @@ export class AuthController {
         name: result.user.name,
         email: result.user.email,
         role: result.user.role,
-        institutionId: result.user.institutionId,
+        institutionId: result.user.institutionId._id ? result.user.institutionId._id.toString() : result.user.institutionId.toString(),
       },
       accessToken: result.tokens.accessToken,
       refreshToken: result.tokens.refreshToken,
@@ -82,7 +82,7 @@ export class AuthController {
       name: user.name,
       email: user.email,
       role: user.role,
-      institutionId: user.institutionId,
+      institutionId: user.institutionId.toString(),
     });
   });
 
@@ -113,6 +113,12 @@ export class AuthController {
       'User created successfully',
       201
     );
+  });
+
+  // Get all institutions (public)
+  getInstitutions = asyncHandler(async (_req: Request, res: Response) => {
+    const institutions = await authService.getAllInstitutions();
+    return sendSuccess(res, institutions);
   });
 }
 

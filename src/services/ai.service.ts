@@ -61,23 +61,31 @@ User command: "${command}"
 Current page context:
 ${JSON.stringify(context, null, 2)}
 
-Analyze the command and generate a JSON operation to execute it.
+Analyze the command. If the user wants to build a COMPLETELY NEW FULL PAGE or a FULL WEBSITE section from scratch (e.g., "create a full college home page", "generate a full website for a hospital"), return the action "generate_full_html".
+
+Otherwise, for specific component edits (insert, update, delete), use the standard actions.
 
 Response format:
 {
-  "action": "insert" | "update" | "delete" | "move",
+  "action": "insert" | "update" | "delete" | "move" | "generate_full_html",
   "component": {
     "type": "ComponentType",
     "props": {...},
     "position": "append" | "prepend" | number
-  }
+  },
+  "prompt": "Description for full HTML generation if action is generate_full_html"
 }
+
+VALID COMPONENT TYPES (only use these for insert/update): 
+HeroBanner, TextBlock, Container, AboutSection, Statistics, FacultyGrid, FAQAccordion, ContactForm, DynamicSection, Button.
 
 Only respond with valid JSON, no explanations.`;
 
       const responseText = await this.getChatCompletion(prompt, true);
       const jsonOperation = JSON.parse(responseText);
 
+      // If it's a full page request, we'll return the signal to the frontend
+      // The frontend will then call generate-html endpoint
       return {
         success: true,
         operation: jsonOperation,
@@ -322,6 +330,51 @@ Only return valid JSON. Do not include markdown code blocks or explanations.`;
       return {
         success: false,
         error: 'Failed to generate component using Groq',
+      };
+    }
+  }
+
+  // Generate a full page HTML using Tailwind CSS
+  async generateFullPageHTML(prompt: string, context: { pages: { name: string, slug: string }[] }): Promise<{
+    success: boolean;
+    html?: string;
+    error?: string;
+  }> {
+    if (!this.groq && !this.anthropic) {
+      throw new AppError('AI service not configured', 503, 'AI_NOT_CONFIGURED');
+    }
+
+    try {
+      const pageLinks = context.pages.map(p => `[${p.name}](/${p.slug})`).join(', ');
+      const systemPrompt = `You are an expert web designer and developer specializing in Tailwind CSS.
+Your task is to generate a full, beautiful, responsive website page based on the user's prompt.
+The page MUST use standard HTML5 and Tailwind CSS (via CDN or standard classes).
+
+CRITICAL RULES:
+1. ONLY return the HTML code inside the <body> tag content. Do NOT include <html>, <head>, or <body> tags.
+2. Use Tailwind CSS classes for ALL styling. Do not use custom CSS unless absolutely necessary.
+3. For navigation and internal links, use the available site pages: ${pageLinks}.
+4. Use standard <a> tags with href attributes for links. Example: <a href="/about-us" class="...">About Us</a>.
+5. Make the design look modern, professional, and "real" (not placeholder-like).
+6. Include sections like Hero, Features, About, Statistics, Testimonials, and Contact if appropriate.
+7. Use Unsplash for placeholder images. Example: <img src="https://images.unsplash.com/photo-..." />.
+8. DO NOT include any React, JSX, or Next.js specific code. Use pure HTML.
+9. ONLY respond with the HTML content. No explanations.`;
+
+      const responseText = await this.getChatCompletion(`${systemPrompt}\n\nUser request: ${prompt}`);
+      
+      // Clean up response if it contains markdown code blocks
+      const cleanHtml = responseText.replace(/```html\n|```/g, '').trim();
+
+      return {
+        success: true,
+        html: cleanHtml,
+      };
+    } catch (error) {
+      console.error('HTML generation error:', error);
+      return {
+        success: false,
+        error: 'Failed to generate page HTML',
       };
     }
   }

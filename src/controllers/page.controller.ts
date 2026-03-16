@@ -52,13 +52,13 @@ export class PageController {
     }
 
     const { id } = req.params;
-    const { jsonConfig, changes } = req.body;
+    const { jsonConfig, htmlContent, useHtml, changes } = req.body;
 
     const page = await pageService.updatePage(
       id,
       req.user.institutionId,
       req.user.userId,
-      jsonConfig,
+      { jsonConfig, htmlContent, useHtml },
       changes
     );
 

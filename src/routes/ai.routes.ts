@@ -71,4 +71,15 @@ router.get(
   aiController.getCustomComponents
 );
 
+// Generate full page HTML
+router.post(
+  '/generate-html',
+  authenticate,
+  aiLimiter,
+  validate([
+    body('prompt').trim().notEmpty().withMessage('Prompt is required'),
+  ]),
+  aiController.generatePageHTML
+);
+
 export default router;

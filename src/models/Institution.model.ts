@@ -85,7 +85,6 @@ const InstitutionSchema = new Schema<IInstitution>(
 );
 
 // Indexes
-InstitutionSchema.index({ email: 1 });
-InstitutionSchema.index({ subdomain: 1 });
+// email and subdomain are indexed automatically by setting unique: true in the schema definition.
 
 export const Institution = mongoose.model<IInstitution>('Institution', InstitutionSchema);

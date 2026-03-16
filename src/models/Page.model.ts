@@ -6,6 +6,8 @@ export interface IPage extends Document {
   name: string;
   slug: string;
   jsonConfig: PageJSON;
+  htmlContent?: string;
+  useHtml: boolean;
   isPublished: boolean;
   version: string;
   createdAt: Date;
@@ -43,6 +45,13 @@ const PageSchema = new Schema<IPage>(
           keywords: [],
         },
       },
+    },
+    htmlContent: {
+      type: String,
+    },
+    useHtml: {
+      type: Boolean,
+      default: false,
     },
     isPublished: {
       type: Boolean,

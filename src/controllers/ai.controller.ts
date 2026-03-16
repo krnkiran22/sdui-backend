@@ -120,6 +120,34 @@ export class AIController {
 
     return sendSuccess(res, components);
   });
+
+  // Generate a full page HTML using Groq/Claude
+  generatePageHTML = asyncHandler(async (req: Request, res: Response) => {
+    if (!req.user) {
+      return sendError(res, 'Unauthorized', 401);
+    }
+
+    const { prompt } = req.body;
+    if (!prompt) {
+      return sendError(res, 'Prompt is required', 400);
+    }
+
+    // Get pages for link context
+    const { Page } = await import('../models/Page.model');
+    const existingPages = await Page.find({ 
+      institutionId: req.user.institutionId 
+    }).select('name slug');
+
+    const result = await aiService.generateFullPageHTML(prompt, { 
+      pages: existingPages.map(p => ({ name: p.name, slug: p.slug })) 
+    });
+
+    if (result.success) {
+      return sendSuccess(res, { html: result.html }, 'HTML generated successfully');
+    } else {
+      return sendError(res, result.error || 'Failed to generate HTML', 500);
+    }
+  });
 }
 
 export default new AIController();

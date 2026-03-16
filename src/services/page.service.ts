@@ -90,12 +90,12 @@ export class PageService {
     return page;
   }
 
-  // Update page JSON config
+  // Update page JSON config or HTML content
   async updatePage(
     pageId: string,
     institutionId: string,
     userId: string,
-    jsonConfig: PageJSON,
+    data: { jsonConfig?: PageJSON; htmlContent?: string; useHtml?: boolean },
     changes?: string
   ): Promise<IPage> {
     const page = await Page.findOne({ _id: pageId, institutionId });
@@ -105,7 +105,10 @@ export class PageService {
     }
 
     // Update page
-    page.jsonConfig = jsonConfig;
+    if (data.jsonConfig) page.jsonConfig = data.jsonConfig;
+    if (data.htmlContent !== undefined) page.htmlContent = data.htmlContent;
+    if (data.useHtml !== undefined) page.useHtml = data.useHtml;
+    
     page.updatedBy = userId as any;
     await page.save();
 
@@ -118,7 +121,7 @@ export class PageService {
     await Version.create({
       pageId: page._id,
       versionNumber: newVersionNumber,
-      jsonConfig,
+      jsonConfig: page.jsonConfig,
       changes: changes || 'Updated page',
       createdBy: userId,
     });
@@ -219,14 +222,14 @@ export class PageService {
   async getPublishedPages(institutionId?: string): Promise<IPage[]> {
     const query = institutionId ? { institutionId, isPublished: true } : { isPublished: true };
     return Page.find(query)
-      .select('name slug jsonConfig institutionId')
+      .select('name slug jsonConfig htmlContent useHtml institutionId')
       .sort({ updatedAt: -1 });
   }
 
   // Get published page by slug (public)
   async getPublishedPageBySlug(slug: string, institutionId: string): Promise<IPage> {
     const page = await Page.findOne({ slug, institutionId, isPublished: true })
-      .select('name slug jsonConfig');
+      .select('name slug jsonConfig htmlContent useHtml');
 
     if (!page) {
       throw new AppError('Page not found', 404, 'PAGE_NOT_FOUND');
@@ -238,7 +241,7 @@ export class PageService {
   // Get any published page by slug globally (cross-institution lookup)
   async getPageBySlugGlobal(slug: string): Promise<IPage> {
     const page = await Page.findOne({ slug, isPublished: true })
-      .select('name slug jsonConfig institutionId');
+      .select('name slug jsonConfig htmlContent useHtml institutionId');
 
     if (!page) {
       throw new AppError('Page not found', 404, 'PAGE_NOT_FOUND');

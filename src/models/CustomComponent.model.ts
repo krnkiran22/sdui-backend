@@ -18,7 +18,6 @@ const CustomComponentSchema = new Schema<ICustomComponent>(
             type: Schema.Types.ObjectId,
             ref: 'Institution',
             required: true,
-            index: true,
         },
         name: {
             type: String,

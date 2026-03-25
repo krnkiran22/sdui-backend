@@ -33,13 +33,14 @@ export class PageController {
       return sendError(res, 'Unauthorized', 401);
     }
 
-    const { name, slug } = req.body;
+    const { name, slug, useHtml } = req.body;
 
     const page = await pageService.createPage({
       institutionId: req.user.institutionId,
       name,
       slug,
       userId: req.user.userId,
+      useHtml: !!useHtml,
     });
 
     return sendSuccess(res, page, 'Page created successfully', 201);

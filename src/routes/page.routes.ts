@@ -24,7 +24,7 @@ router.get(
 router.post(
   '/',
   authenticate,
-  authorize('super-admin', 'editor'),
+  authorize('super-admin', 'admin', 'editor'),
   validate([
     body('name').trim().notEmpty().withMessage('Name is required'),
     body('slug')
@@ -40,10 +40,12 @@ router.post(
 router.put(
   '/:id',
   authenticate,
-  authorize('super-admin', 'editor'),
+  authorize('super-admin', 'admin', 'editor'),
   validate([
     param('id').isMongoId().withMessage('Invalid page ID'),
-    body('jsonConfig').notEmpty().withMessage('JSON config is required'),
+    body('jsonConfig').optional(),
+    body('htmlContent').optional(),
+    body('useHtml').optional().isBoolean(),
   ]),
   pageController.updatePage
 );
@@ -52,7 +54,7 @@ router.put(
 router.post(
   '/:id/publish',
   authenticate,
-  authorize('super-admin', 'editor'),
+  authorize('super-admin', 'admin', 'editor'),
   validate([
     param('id').isMongoId().withMessage('Invalid page ID'),
   ]),
@@ -63,7 +65,7 @@ router.post(
 router.post(
   '/:id/unpublish',
   authenticate,
-  authorize('super-admin', 'editor'),
+  authorize('super-admin', 'admin', 'editor'),
   validate([
     param('id').isMongoId().withMessage('Invalid page ID'),
   ]),
@@ -74,7 +76,7 @@ router.post(
 router.delete(
   '/:id',
   authenticate,
-  authorize('super-admin', 'editor'),
+  authorize('super-admin', 'admin', 'editor'),
   validate([
     param('id').isMongoId().withMessage('Invalid page ID'),
   ]),
@@ -85,7 +87,7 @@ router.delete(
 router.post(
   '/:id/duplicate',
   authenticate,
-  authorize('super-admin', 'editor'),
+  authorize('super-admin', 'admin', 'editor'),
   validate([
     param('id').isMongoId().withMessage('Invalid page ID'),
     body('name').trim().notEmpty().withMessage('Name is required'),

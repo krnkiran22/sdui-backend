@@ -36,9 +36,9 @@ export class AIService {
       });
       return message.content[0].type === 'text' ? message.content[0].text : '';
     } else if (this.groq) {
-      console.log(`Calling Groq using model: openai/gpt-oss-20b ${jsonMode ? '(JSON Mode)' : ''}`);
+      console.log(`Calling Groq using model: llama-3.3-70b-versatile ${jsonMode ? '(JSON Mode)' : ''}`);
       const response = await this.groq.chat.completions.create({
-        model: 'openai/gpt-oss-20b',
+        model: 'llama-3.3-70b-versatile',
         messages: [{ role: 'user', content: prompt }],
         response_format: jsonMode ? { type: 'json_object' } : undefined,
       });
@@ -61,9 +61,9 @@ User command: "${command}"
 Current page context:
 ${JSON.stringify(context, null, 2)}
 
-Analyze the command. If the user wants to build a COMPLETELY NEW FULL PAGE or a FULL WEBSITE section from scratch (e.g., "create a full college home page", "generate a full website for a hospital"), return the action "generate_full_html".
-
-Otherwise, for specific component edits (insert, update, delete), use the standard actions.
+Analyze the command. Determine if the user wants to:
+1. Build a COMPLETELY NEW FULL PAGE or a FULL WEBSITE/TEMPLATE from scratch (Keywords: "full", "website", "template", "landing page", "html code", "full code"). For these, return the action "generate_full_html". This is the HIGHEST PRIORITY.
+2. Perform a specific modification (insert, update, delete, move) on existing sections.
 
 Response format:
 {
@@ -73,19 +73,40 @@ Response format:
     "props": {...},
     "position": "append" | "prepend" | number
   },
-  "prompt": "Description for full HTML generation if action is generate_full_html"
+  "prompt": "Full description for HTML generation if action is generate_full_html"
 }
 
 VALID COMPONENT TYPES (only use these for insert/update): 
-HeroBanner, TextBlock, Container, AboutSection, Statistics, FacultyGrid, FAQAccordion, ContactForm, DynamicSection, Button.
+HeroBanner, TextBlock, Container, AboutSection, Statistics, FacultyGrid, FAQAccordion, ContactForm, DynamicSection, Button, RawHTML.
+CRITICAL: If the user says "full", "website", or "html page", DO NOT use "insert". USE "generate_full_html".
 
 Only respond with valid JSON, no explanations.`;
 
       const responseText = await this.getChatCompletion(prompt, true);
+      console.log('AI Raw Response:', responseText);
       const jsonOperation = JSON.parse(responseText);
 
-      // If it's a full page request, we'll return the signal to the frontend
-      // The frontend will then call generate-html endpoint
+      // Validation: If it seems like a full page request, convert it to generate_full_html
+      const lowerCommand = command.toLowerCase();
+      const isFullPageRequest = lowerCommand.match(/full|website|template|landing|college|university|hospital|school/);
+      
+      console.log('Is Full Page Request:', !!isFullPageRequest);
+
+      if (isFullPageRequest && jsonOperation.action !== 'generate_full_html') {
+          console.log('Overriding action to generate_full_html');
+          jsonOperation.action = 'generate_full_html';
+          jsonOperation.prompt = command;
+      }
+
+      // If it's an insert with an unknown type, convert it to generate_full_html
+      if (jsonOperation.action === 'insert' && !['HeroBanner', 'TextBlock', 'Container', 'AboutSection', 'Statistics', 'FacultyGrid', 'FAQAccordion', 'ContactForm', 'DynamicSection', 'Button', 'RawHTML'].includes(jsonOperation.component?.type)) {
+          console.log('Unknown component type, reverting to generate_full_html');
+          jsonOperation.action = 'generate_full_html';
+          jsonOperation.prompt = command;
+      }
+
+      console.log('Final AI Operation:', JSON.stringify(jsonOperation, null, 2));
+
       return {
         success: true,
         operation: jsonOperation,
@@ -305,12 +326,13 @@ Response MUST be a JSON object with this exact structure:
   "jsxCode": "..."
 }
 
-You can use these existing types: HeroBanner, TextBlock, Container, AboutSection, Statistics, FacultyGrid, FAQAccordion, ContactForm, DynamicSection, Button.
+You can use these existing types: HeroBanner, TextBlock, Container, AboutSection, Statistics, FacultyGrid, FAQAccordion, ContactForm, DynamicSection, Button, RawHTML.
+If the component requested doesn't fit the others, use "RawHTML" and put the full HTML/Tailwind code in the "html" prop.
 Only return valid JSON. Do not include markdown code blocks or explanations.`;
 
-      console.log(`Generating component with Groq using model: openai/gpt-oss-20b`);
+      console.log(`Generating component with Groq using model: llama-3.3-70b-versatile`);
       const response = await this.groq.chat.completions.create({
-        model: 'openai/gpt-oss-20b',
+        model: 'llama-3.3-70b-versatile',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: prompt }
@@ -325,11 +347,11 @@ Only return valid JSON. Do not include markdown code blocks or explanations.`;
         success: true,
         component: componentData,
       };
-    } catch (error) {
-      console.error('Groq component generation error:', error);
+    } catch (error: any) {
+      console.error('Groq component generation error:', error?.response?.data || error);
       return {
         success: false,
-        error: 'Failed to generate component using Groq',
+        error: error?.response?.data?.error?.message || error.message || 'Failed to generate component using Groq',
       };
     }
   }
@@ -345,38 +367,189 @@ Only return valid JSON. Do not include markdown code blocks or explanations.`;
     }
 
     try {
-      const pageLinks = context.pages.map(p => `[${p.name}](/${p.slug})`).join(', ');
-      const systemPrompt = `You are an expert web designer and developer specializing in Tailwind CSS.
-Your task is to generate a full, beautiful, responsive website page based on the user's prompt.
-The page MUST use standard HTML5 and Tailwind CSS (via CDN or standard classes).
+      const pageLinks = context.pages.map(p => `<a href="/${p.slug}">${p.name}</a>`).join(', ');
 
-CRITICAL RULES:
-1. ONLY return the HTML code inside the <body> tag content. Do NOT include <html>, <head>, or <body> tags.
-2. Use Tailwind CSS classes for ALL styling. Do not use custom CSS unless absolutely necessary.
-3. For navigation and internal links, use the available site pages: ${pageLinks}.
-4. Use standard <a> tags with href attributes for links. Example: <a href="/about-us" class="...">About Us</a>.
-5. Make the design look modern, professional, and "real" (not placeholder-like).
-6. Include sections like Hero, Features, About, Statistics, Testimonials, and Contact if appropriate.
-7. Use Unsplash for placeholder images. Example: <img src="https://images.unsplash.com/photo-..." />.
-8. DO NOT include any React, JSX, or Next.js specific code. Use pure HTML.
-9. ONLY respond with the HTML content. No explanations.`;
+      const systemPrompt = `You are a world-class frontend developer and UI/UX designer. Your task is to generate a complete, stunning, production-ready HTML landing page.
 
-      const responseText = await this.getChatCompletion(`${systemPrompt}\n\nUser request: ${prompt}`);
-      
-      // Clean up response if it contains markdown code blocks
-      const cleanHtml = responseText.replace(/```html\n|```/g, '').trim();
+STRICT OUTPUT RULES:
+1. Return a COMPLETE, SELF-CONTAINED HTML document starting with <!DOCTYPE html> and including <html>, <head>, and <body> tags.
+2. Do NOT wrap your response in markdown code blocks. Output raw HTML only.
+3. Do NOT include any explanations, comments outside the HTML, or apologies.
+
+TECHNICAL REQUIREMENTS:
+- Include Tailwind CSS via CDN: <script src="https://cdn.tailwindcss.com"></script>
+- Include Google Fonts (Inter) via: <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+- Add this Tailwind config in a <script> right after the CDN script to enable Inter font:
+  <script>tailwind.config = { theme: { extend: { fontFamily: { sans: ['Inter', 'sans-serif'] } } } }</script>
+- For subtle scroll animations, add a simple IntersectionObserver in a <script> at the bottom.
+- ALL images MUST use picsum.photos with a descriptive seed. Format:
+    https://picsum.photos/seed/{SEED}/{WIDTH}/{HEIGHT}
+  Use descriptive seed words matching the content, for example:
+    - Hero background:    https://picsum.photos/seed/campus/1400/800
+    - Faculty photo:      https://picsum.photos/seed/professor/400/400
+    - Feature card image: https://picsum.photos/seed/technology/600/400
+    - Team member:        https://picsum.photos/seed/team1/300/300
+    - Testimonial avatar: https://picsum.photos/seed/student/80/80
+    - About section:      https://picsum.photos/seed/building/800/500
+  NEVER use Unsplash or any other image service. ONLY picsum.photos.
+  Add onerror="this.src='https://picsum.photos/seed/fallback/400/300'" to every <img> tag.
+- Navigation links available: ${pageLinks || '<a href="/">Home</a>'}
+
+DESIGN STANDARDS (MANDATORY - make it stunning):
+- Use ONE of these modern color schemes (choose the most appropriate for the request):
+  - Deep Slate & Blue (slate-950, blue-600)
+  - Dark Charcoal & Emerald (neutral-950, emerald-600)
+  - Midnight Navy & Indigo (indigo-950, indigo-600)
+  - Pure Black & Gold (black, amber-500)
+- Hero section: full-screen height (min-h-screen), centered content, large headline (text-5xl to text-7xl), subtitle, CTA buttons.
+- Navigation bar: sticky, glassmorphism effect (backdrop-blur, bg-white/5), light border.
+- Contrast: Ensure HIGH CONTRAST. Never use text colors (like purple text) that blend into the background (like a purple gradient). Use white or very light gray for text on dark backgrounds.
+- Image Quality: Do NOT use heavy overlays that wash out or hide the images. If an image needs an overlay for text legibility, use a very subtle linear gradient at the bottom or a slight darkening (bg-black/20).
+- Use gradient text ONLY for emphasis on 2-3 words, not entire sentences: bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent.
+- Feature/stat cards: rounded-2xl, shadow-xl, border border-white/5, with hover:scale-[1.02] transition.
+- Typography: Large, bold font-black headings. Use 'Inter' font (force sans).
+- Section spacing: Use generous padding (py-24 or py-32) to let the design breathe.
+- Include at minimum: Navbar, Hero, Features/Services (3-6 cards), Stats section, Testimonials with avatars, CTA Banner, Detailed Footer.
+
+USER REQUEST: ${prompt}`;
+
+      let responseText: string;
+
+      if (this.anthropic) {
+        const message = await this.anthropic.messages.create({
+          model: 'claude-3-5-sonnet-20241022',
+          max_tokens: 8000,
+          messages: [{ role: 'user', content: systemPrompt }],
+        });
+        responseText = message.content[0].type === 'text' ? message.content[0].text : '';
+      } else if (this.groq) {
+        const response = await this.groq.chat.completions.create({
+          model: 'llama-3.3-70b-versatile',
+          messages: [{ role: 'user', content: systemPrompt }],
+          max_tokens: 8000,
+        });
+      responseText = response.choices[0].message.content || '';
+      } else {
+        throw new AppError('AI service not configured', 503, 'AI_NOT_CONFIGURED');
+      }
+
+      const cleanHtml = this.extractHTML(responseText);
 
       return {
         success: true,
         html: cleanHtml,
       };
-    } catch (error) {
-      console.error('HTML generation error:', error);
+    } catch (error: any) {
+      console.error('HTML generation error:', error?.response?.data || error);
       return {
         success: false,
-        error: 'Failed to generate page HTML',
+        error: error?.response?.data?.error?.message || error.message || 'Failed to generate page HTML',
       };
     }
+  }
+
+  // Iteratively modify existing HTML based on user request
+  async modifyFullPageHTML(prompt: string, currentHtml: string): Promise<{
+    success: boolean;
+    html?: string;
+    error?: string;
+  }> {
+    if (!this.groq && !this.anthropic) {
+      throw new AppError('AI service not configured', 503, 'AI_NOT_CONFIGURED');
+    }
+
+    try {
+      const systemPrompt = `You are a world-class frontend developer. Your task is to MODIFY an existing HTML landing page based on the user's instructions.
+
+STRICT OUTPUT RULES:
+1. Return the FULL, COMPLETE updated HTML document. Do NOT return just the snippets.
+2. Do NOT wrap your response in markdown code blocks. Output raw HTML only.
+3. Keep the overall design system and Tailwind CSS configuration intact unless asked otherwise.
+4. Do NOT include any explanations or apologies. Just the updated code.
+
+USER INSTRUCTION: ${prompt}
+
+CURRENT HTML CODE:
+${currentHtml}`;
+
+      let responseText: string;
+
+      if (this.anthropic) {
+        const message = await this.anthropic.messages.create({
+          model: 'claude-3-5-sonnet-20241022',
+          max_tokens: 8000,
+          messages: [{ role: 'user', content: systemPrompt }],
+        });
+        responseText = message.content[0].type === 'text' ? message.content[0].text : '';
+      } else if (this.groq) {
+        const response = await this.groq.chat.completions.create({
+          model: 'llama-3.3-70b-versatile',
+          messages: [{ role: 'user', content: systemPrompt }],
+          max_tokens: 8000,
+        });
+        responseText = response.choices[0].message.content || '';
+      } else {
+        throw new AppError('AI service not configured', 503, 'AI_NOT_CONFIGURED');
+      }
+
+      const cleanHtml = this.extractHTML(responseText);
+
+      return {
+        success: true,
+        html: cleanHtml,
+      };
+    } catch (error: any) {
+      console.error('HTML modification error:', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to modify page HTML',
+      };
+    }
+  }
+
+  // Helper to robustly extract HTML from AI response
+  private extractHTML(responseText: string): string {
+    let cleanHtml = responseText;
+
+    // 1. Strip markdown code fences anywhere in the string (multiline)
+    cleanHtml = cleanHtml.replace(/```html\s*/gi, '').replace(/```\s*/gi, '');
+
+    // 2. Find where the actual HTML document starts
+    const doctypeIdx = cleanHtml.toLowerCase().indexOf('<!doctype');
+    const htmlTagIdx = cleanHtml.toLowerCase().indexOf('<html');
+
+    if (doctypeIdx !== -1) {
+      cleanHtml = cleanHtml.slice(doctypeIdx);
+    } else if (htmlTagIdx !== -1) {
+      cleanHtml = cleanHtml.slice(htmlTagIdx);
+    }
+
+    // 3. Trim any trailing whitespace / leftover text after </html>
+    const closingIdx = cleanHtml.toLowerCase().lastIndexOf('</html>');
+    if (closingIdx !== -1) {
+      cleanHtml = cleanHtml.slice(0, closingIdx + 7);
+    }
+
+    cleanHtml = cleanHtml.trim();
+
+    // 4. Safety net: if we still don't have a valid document, wrap what we have
+    if (!cleanHtml.toLowerCase().includes('<!doctype') && !cleanHtml.toLowerCase().startsWith('<html')) {
+      cleanHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
+  <style>body { font-family: 'Inter', sans-serif; margin: 0; }</style>
+</head>
+<body>
+${cleanHtml}
+</body>
+</html>`;
+    }
+
+    return cleanHtml;
   }
 }
 

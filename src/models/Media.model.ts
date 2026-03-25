@@ -19,7 +19,6 @@ const MediaSchema = new Schema<IMedia>(
       type: Schema.Types.ObjectId,
       ref: 'Institution',
       required: true,
-      index: true,
     },
     filename: {
       type: String,

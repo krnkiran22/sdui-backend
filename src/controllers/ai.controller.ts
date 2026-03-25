@@ -148,6 +148,29 @@ export class AIController {
       return sendError(res, result.error || 'Failed to generate HTML', 500);
     }
   });
+
+  // Modify existing full page HTML
+  modifyPageHTML = asyncHandler(async (req: Request, res: Response) => {
+    if (!req.user) {
+      return sendError(res, 'Unauthorized', 401);
+    }
+
+    const { prompt, currentHtml } = req.body;
+    if (!prompt) {
+      return sendError(res, 'Prompt is required', 400);
+    }
+    if (!currentHtml) {
+      return sendError(res, 'Current HTML is required', 400);
+    }
+
+    const result = await aiService.modifyFullPageHTML(prompt, currentHtml);
+
+    if (result.success) {
+      return sendSuccess(res, { html: result.html }, 'HTML modified successfully');
+    } else {
+      return sendError(res, result.error || 'Failed to modify HTML', 500);
+    }
+  });
 }
 
 export default new AIController();

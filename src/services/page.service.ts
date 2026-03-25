@@ -40,6 +40,7 @@ export class PageService {
     name: string;
     slug: string;
     userId: string;
+    useHtml?: boolean;
   }): Promise<IPage> {
     // Check if slug already exists
     const existingPage = await Page.findOne({
@@ -74,6 +75,7 @@ export class PageService {
           linkedNodes: {},
         },
       },
+      useHtml: !!data.useHtml,
       isPublished: true,
       updatedBy: data.userId,
     });

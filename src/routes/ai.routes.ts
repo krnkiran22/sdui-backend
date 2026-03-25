@@ -82,4 +82,16 @@ router.post(
   aiController.generatePageHTML
 );
 
+// Modify existing full page HTML
+router.post(
+  '/modify-html',
+  authenticate,
+  aiLimiter,
+  validate([
+    body('prompt').trim().notEmpty().withMessage('Prompt is required'),
+    body('currentHtml').trim().notEmpty().withMessage('Current HTML is required'),
+  ]),
+  aiController.modifyPageHTML
+);
+
 export default router;

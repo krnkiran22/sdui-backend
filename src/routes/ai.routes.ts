@@ -90,6 +90,7 @@ router.post(
   validate([
     body('prompt').trim().notEmpty().withMessage('Prompt is required'),
     body('currentHtml').trim().notEmpty().withMessage('Current HTML is required'),
+    body('currentSlug').optional().trim(),
   ]),
   aiController.modifyPageHTML
 );

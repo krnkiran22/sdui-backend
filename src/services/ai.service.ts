@@ -449,7 +449,11 @@ USER REQUEST: ${prompt}`;
   }
 
   // Iteratively modify existing HTML based on user request
-  async modifyFullPageHTML(prompt: string, currentHtml: string): Promise<{
+  async modifyFullPageHTML(
+    prompt: string,
+    currentHtml: string,
+    context?: { pages?: { name: string; slug: string }[]; currentSlug?: string }
+  ): Promise<{
     success: boolean;
     html?: string;
     error?: string;
@@ -459,6 +463,33 @@ USER REQUEST: ${prompt}`;
     }
 
     try {
+      // Build page navigation context for cross-page linking
+      let pageLinksContext = '';
+      if (context?.pages && context.pages.length > 0) {
+        const currentIndex = context?.currentSlug
+          ? context.pages.findIndex((p) => p.slug === context.currentSlug)
+          : -1;
+        const nextPage = currentIndex >= 0 && currentIndex < context.pages.length - 1
+          ? context.pages[currentIndex + 1]
+          : null;
+        const prevPage = currentIndex > 0
+          ? context.pages[currentIndex - 1]
+          : null;
+
+        const pageList = context.pages
+          .map((p, i) => `  ${i + 1}. "${p.name}" → URL: /${p.slug}${context.currentSlug === p.slug ? ' (CURRENT PAGE)' : ''}`)
+          .join('\n');
+
+        pageLinksContext = `
+PAGE NAVIGATION CONTEXT:
+The following pages exist in this web app. Use their URLs when the user asks to redirect or link between pages:
+${pageList}
+${nextPage ? `- "next page" means: /${nextPage.slug} (${nextPage.name})` : ''}
+${prevPage ? `- "previous page" means: /${prevPage.slug} (${prevPage.name})` : ''}
+When adding redirect buttons or links, always use the actual page URL paths listed above.
+`;
+      }
+
       const systemPrompt = `You are a world-class frontend developer. Your task is to MODIFY an existing HTML landing page based on the user's instructions.
 
 STRICT OUTPUT RULES:
@@ -466,7 +497,7 @@ STRICT OUTPUT RULES:
 2. Do NOT wrap your response in markdown code blocks. Output raw HTML only.
 3. Keep the overall design system and Tailwind CSS configuration intact unless asked otherwise.
 4. Do NOT include any explanations or apologies. Just the updated code.
-
+${pageLinksContext}
 USER INSTRUCTION: ${prompt}
 
 CURRENT HTML CODE:

@@ -155,7 +155,7 @@ export class AIController {
       return sendError(res, 'Unauthorized', 401);
     }
 
-    const { prompt, currentHtml } = req.body;
+    const { prompt, currentHtml, currentSlug } = req.body;
     if (!prompt) {
       return sendError(res, 'Prompt is required', 400);
     }
@@ -163,7 +163,18 @@ export class AIController {
       return sendError(res, 'Current HTML is required', 400);
     }
 
-    const result = await aiService.modifyFullPageHTML(prompt, currentHtml);
+    // Fetch existing pages to provide navigation context to AI
+    const { Page } = await import('../models/Page.model');
+    const existingPages = await Page.find({
+      institutionId: req.user.institutionId,
+    }).select('name slug').sort({ createdAt: 1 });
+
+    const pagesContext = existingPages.map((p) => ({ name: p.name, slug: p.slug }));
+
+    const result = await aiService.modifyFullPageHTML(prompt, currentHtml, {
+      pages: pagesContext,
+      currentSlug: currentSlug || undefined,
+    });
 
     if (result.success) {
       return sendSuccess(res, { html: result.html }, 'HTML modified successfully');

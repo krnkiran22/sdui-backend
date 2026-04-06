@@ -395,6 +395,11 @@ TECHNICAL REQUIREMENTS:
   Add onerror="this.src='https://picsum.photos/seed/fallback/400/300'" to every <img> tag.
 - Navigation links available: ${pageLinks || '<a href="/">Home</a>'}
 
+IN-APP NAVIGATION (when the user asks for buttons or CTAs that go to another page):
+- Use real paths from the list above: <a href="/slug" class="..."> for any "Apply", "Go to X", "redirect", "next page", or similar request.
+- Prefer <a> styled as a button (same Tailwind as a button) over <button> without navigation.
+- Never use href="#" for CTAs that should open another page in this app when a matching slug exists in the navigation list.
+
 DESIGN STANDARDS (MANDATORY - make it stunning):
 - Use ONE of these modern color schemes (choose the most appropriate for the request):
   - Deep Slate & Blue (slate-950, blue-600)
@@ -480,13 +485,27 @@ USER REQUEST: ${prompt}`;
           .map((p, i) => `  ${i + 1}. "${p.name}" → URL: /${p.slug}${context.currentSlug === p.slug ? ' (CURRENT PAGE)' : ''}`)
           .join('\n');
 
+        const otherPages = context.pages.filter((p) => p.slug !== context.currentSlug);
+        const applyLikeHint =
+          otherPages.find((p) => /apply|admission|form|register|signup/i.test(p.name)) ||
+          otherPages[0];
+
         pageLinksContext = `
 PAGE NAVIGATION CONTEXT:
 The following pages exist in this web app. Use their URLs when the user asks to redirect or link between pages:
 ${pageList}
 ${nextPage ? `- "next page" means: /${nextPage.slug} (${nextPage.name})` : ''}
 ${prevPage ? `- "previous page" means: /${prevPage.slug} (${prevPage.name})` : ''}
-When adding redirect buttons or links, always use the actual page URL paths listed above.
+${!nextPage && otherPages.length > 0 ? `- There is no "next" page in list order after the current one. For vague phrases like "another page" or "go to the apply page", match by page name (e.g. Apply → slug) or use: /${applyLikeHint.slug} (${applyLikeHint.name}) if it fits the user's intent.` : ''}
+When adding redirect buttons or links, always use the actual page URL paths listed above (paths start with /, e.g. href="/my-slug").
+
+BUTTON → PAGE REDIRECTS (CRITICAL):
+- If the user wants a button (e.g. "Apply", "Submit", "Continue", CTA) to navigate to another page in this app, you MUST make it actually navigate:
+  PREFERRED: change the element to an anchor with the same Tailwind classes: <a href="/TARGET-SLUG" class="...existing button classes...">Label</a>
+  ALTERNATIVE: keep <button> and add: onclick="window.location.href='/TARGET-SLUG'" (use type="button")
+- Do NOT leave navigation as href="#" or javascript:void(0) when a real target page exists in the list above.
+- Match the user's wording to the right page (e.g. "apply page" → page whose name/slug contains apply; "next page" → next page line above).
+- Preserve accessibility: if using <a>, keep visible text; add cursor-pointer if needed.
 `;
       }
 

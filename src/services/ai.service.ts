@@ -3,6 +3,7 @@ import OpenAI from 'openai';
 import env from '../config/env';
 import { AppError } from '../middleware/error.middleware';
 import { PageJSON } from '../types/page.types';
+import { getTemplate, suggestTemplate } from '../templates/site-templates';
 
 export class AIService {
   private anthropic: Anthropic | null = null;
@@ -359,7 +360,7 @@ Only return valid JSON. Do not include markdown code blocks or explanations.`;
   // Plan a full multi-page website structure from a single prompt
   async planSite(prompt: string): Promise<{
     success: boolean;
-    pages?: Array<{ name: string; slug: string; purpose: string }>;
+    pages?: Array<{ name: string; slug: string; purpose: string; templateType: string }>;
     error?: string;
   }> {
     try {
@@ -371,14 +372,24 @@ USER REQUEST: "${prompt}"
 RULES:
 - Return 3 to 7 pages. Always include a home page as the FIRST item.
 - Slugs must be lowercase, URL-safe, hyphens only (no spaces, no slashes).
-- "purpose" must describe exactly what content and sections appear on that page (2-3 sentences).
-- For e-commerce: include product-category pages (e.g. men, women, shoes) plus home and possibly cart/about.
-- Do NOT add pages that are not needed by the request.
+- "purpose" describes the exact content and sections on this page (2-3 sentences).
+- "templateType" must be ONE of: hero-dark, product-grid, about-editorial, contact-split, blog-magazine, services-dark, pricing-tiers, team-profiles, product-showcase, minimal-content
+  Choose the best-fitting template:
+  hero-dark → homepage, landing page
+  product-grid → product category, shop, listing, collection (men/women/shoes/shirts)
+  about-editorial → about, story, mission, history
+  contact-split → contact, reach us, support
+  blog-magazine → blog, news, articles
+  services-dark → services, solutions, capabilities
+  pricing-tiers → pricing, plans, subscription
+  team-profiles → team, faculty, staff, people
+  product-showcase → featured product, portfolio, gallery
+  minimal-content → simple info page, legal, misc
 
-Respond with ONLY a JSON object in this exact shape (no markdown, no explanation):
+Respond with ONLY a JSON object (no markdown):
 {
   "pages": [
-    { "name": "Page Display Name", "slug": "url-slug", "purpose": "Detailed description of this page's content and sections." }
+    { "name": "Page Name", "slug": "url-slug", "purpose": "Description.", "templateType": "hero-dark" }
   ]
 }`;
 
@@ -420,6 +431,7 @@ Respond with ONLY a JSON object in this exact shape (no markdown, no explanation
           .replace(/-+/g, '-')
           .replace(/^-|-$/g, ''),
         purpose: p.purpose,
+        templateType: (p as any).templateType ?? suggestTemplate(p.name, p.purpose),
       }));
 
       return { success: true, pages: sanitized };
@@ -429,8 +441,93 @@ Respond with ONLY a JSON object in this exact shape (no markdown, no explanation
     }
   }
 
-  // Generate a full page HTML using Tailwind CSS
-  async generateFullPageHTML(prompt: string, context: { pages: { name: string, slug: string }[], currentSlug?: string }): Promise<{
+  // Extract all [PLACEHOLDER] keys from a template
+  private extractPlaceholders(html: string): string[] {
+    const matches = new Set<string>();
+    const regex = /\[([A-Z][A-Z0-9_]+)\]/g;
+    let m;
+    while ((m = regex.exec(html)) !== null) matches.add(m[1]);
+    return Array.from(matches);
+  }
+
+  private fillTemplate(template: string, values: Record<string, string>): string {
+    let result = template;
+    for (const [key, value] of Object.entries(values)) {
+      result = result.split(`[${key}]`).join(value ?? '');
+    }
+    return result;
+  }
+
+  /**
+   * Compress a flat placeholder list into a compact schema for the AI.
+   * Numbered keys like STAT1_N, STAT2_N, STAT3_N get merged into
+   *   { "STAT_N": ["v1","v2","v3"] }
+   * which the AI fills as an array — server expands back to STAT1_N etc.
+   * Returns { compactKeys, expandFn } where expandFn restores the flat map.
+   */
+  private compressPlaceholders(keys: string[]): {
+    compactKeys: string[];                                      // compact key names for the prompt
+    expandFn: (aiValues: Record<string, any>) => Record<string, string>; // restores flat map
+  } {
+    // Group keys that match PREFIX<digit>[_SUFFIX] into arrays
+    // e.g.  STAT1_N, STAT2_N, STAT3_N, STAT4_N  →  group "STAT_N" with 4 members
+    const groups = new Map<string, string[]>(); // groupKey → [key1, key2, ...]
+    const singles: string[] = [];
+
+    for (const key of keys) {
+      const m = key.match(/^([A-Z_]+?)(\d+)(_[A-Z0-9_]+)?$/);
+      if (m) {
+        const groupKey = m[1].replace(/_$/, '') + (m[3] ?? ''); // e.g. STAT_N
+        if (!groups.has(groupKey)) groups.set(groupKey, []);
+        groups.get(groupKey)!.push(key);
+      } else {
+        singles.push(key);
+      }
+    }
+
+    // Only treat as group if 2+ numbered variants exist
+    const realGroups = new Map<string, string[]>();
+    for (const [gk, members] of groups) {
+      if (members.length >= 2) {
+        realGroups.set(gk, members.sort());
+      } else {
+        singles.push(...members);
+      }
+    }
+
+    const compactKeys: string[] = [
+      ...singles,
+      // compact format: "STAT_N[]" signals array of values
+      ...Array.from(realGroups.keys()).map((k) => `${k}[] (${realGroups.get(k)!.length} items)`),
+    ];
+
+    const expandFn = (aiValues: Record<string, any>): Record<string, string> => {
+      const flat: Record<string, string> = {};
+
+      // Copy single keys directly
+      for (const sk of singles) {
+        if (aiValues[sk] !== undefined) flat[sk] = String(aiValues[sk]);
+      }
+
+      // Expand arrays back to numbered keys
+      for (const [gk, members] of realGroups) {
+        const arr: any[] = aiValues[gk] ?? aiValues[`${gk}[]`] ?? [];
+        members.forEach((origKey, i) => {
+          flat[origKey] = arr[i] !== undefined ? String(arr[i]) : '';
+        });
+      }
+
+      return flat;
+    };
+
+    return { compactKeys, expandFn };
+  }
+
+  // Generate a full page HTML using a pre-built template + AI JSON filling.
+  // Instead of sending the full template (~12k chars) to the AI, we extract
+  // only the placeholder KEYS, ask AI for a small JSON object, then fill
+  // the template server-side. This keeps each request well under 2k tokens.
+  async generateFullPageHTML(prompt: string, context: { pages: { name: string, slug: string }[], currentSlug?: string, templateType?: string }): Promise<{
     success: boolean;
     html?: string;
     error?: string;
@@ -442,104 +539,105 @@ Respond with ONLY a JSON object in this exact shape (no markdown, no explanation
     try {
       const allPages = context.pages;
       const currentSlug = context.currentSlug;
+      const year = new Date().getFullYear();
 
-      // Build navbar link list — mark the current page so AI can highlight it
-      const navLinks = allPages
+      // Pick template
+      const templateType = context.templateType ?? suggestTemplate(currentSlug ?? '', prompt);
+      const templateHtml = getTemplate(templateType);
+
+      // Build nav links — white-on-dark style matching SHARED_NAV (dark blue navbar)
+      // These links are also reused in footers which are all dark, so white works everywhere.
+      const navLinksHtml = allPages
         .map((p) =>
           p.slug === currentSlug
-            ? `<a href="/${p.slug}" class="ACTIVE">${p.name}</a>`
-            : `<a href="/${p.slug}">${p.name}</a>`
+            ? `<a href="/${p.slug}" style="color:#ffffff;font-weight:800;text-decoration:underline;text-underline-offset:4px;white-space:nowrap">${p.name}</a>`
+            : `<a href="/${p.slug}" style="color:rgba(191,219,254,0.8);font-weight:500;white-space:nowrap" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='rgba(191,219,254,0.8)'">${p.name}</a>`
         )
-        .join(', ');
+        .join('<span style="color:rgba(255,255,255,0.15);margin:0 8px">|</span>');
 
-      const pageListText = allPages
-        .map((p, i) => `  ${i + 1}. "${p.name}" → /${p.slug}${p.slug === currentSlug ? ' ← THIS PAGE' : ''}`)
-        .join('\n');
+      const pageSlugList = allPages.map((p) => `/${p.slug}`).join(', ');
 
-      const systemPrompt = `You are a world-class frontend developer and UI/UX designer. Your task is to generate a complete, stunning, production-ready HTML landing page.
+      // Extract placeholder keys — exclude ones we fill ourselves
+      const autoFilled = new Set(['NAV_LINKS', 'YEAR']);
+      const placeholders = this.extractPlaceholders(templateHtml).filter((k) => !autoFilled.has(k));
 
-STRICT OUTPUT RULES:
-1. Return a COMPLETE, SELF-CONTAINED HTML document starting with <!DOCTYPE html> and including <html>, <head>, and <body> tags.
-2. Do NOT wrap your response in markdown code blocks. Output raw HTML only.
-3. Do NOT include any explanations, comments outside the HTML, or apologies.
+      // Compress numbered sequences into arrays to shrink the prompt significantly
+      const { compactKeys, expandFn } = this.compressPlaceholders(placeholders);
 
-TECHNICAL REQUIREMENTS:
-- Include Tailwind CSS via CDN: <script src="https://cdn.tailwindcss.com"></script>
-- Include Google Fonts (Inter) via: <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;900&display=swap" rel="stylesheet">
-- Add this Tailwind config in a <script> right after the CDN script to enable Inter font:
-  <script>tailwind.config = { theme: { extend: { fontFamily: { sans: ['Inter', 'sans-serif'] } } } }</script>
-- For subtle scroll animations, add a simple IntersectionObserver in a <script> at the bottom.
-- ALL images MUST use picsum.photos with a descriptive seed. Format:
-    https://picsum.photos/seed/{SEED}/{WIDTH}/{HEIGHT}
-  Use descriptive seed words matching the content:
-    - Hero background:    https://picsum.photos/seed/hero/1400/800
-    - Product card image: https://picsum.photos/seed/product1/600/400
-    - Team member:        https://picsum.photos/seed/team1/300/300
-    - Testimonial avatar: https://picsum.photos/seed/user1/80/80
-    - About section:      https://picsum.photos/seed/about/800/500
-  NEVER use Unsplash or any other image service. ONLY picsum.photos.
-  Add onerror="this.src='https://picsum.photos/seed/fallback/400/300'" to every <img> tag.
+      const fillPrompt = `College page content needed. Return compact JSON only.
 
-SITE NAVIGATION (CRITICAL — ALL pages must be reachable from the navbar):
-The full website has these pages — every page's navbar MUST link to ALL of them:
-${pageListText}
-- Navbar links available: ${navLinks || '<a href="/">Home</a>'}
-- Use these EXACT href paths. Never use "#" for inter-page links.
-- Mark the ACTIVE (current) page link with a highlighted style (e.g. underline, bold, border-b-2, or brighter color).
-- Every CTA button that says "Shop Now", "Browse", "Go to X", "Apply", etc. must also use these real href paths.
+College info: ${prompt}
+Page: /${currentSlug ?? ''} | Site pages: ${allPages.map((p) => `${p.name}→/${p.slug}`).join(' ')}
 
-BUTTON → PAGE REDIRECTS (CRITICAL):
-- If a section has a CTA or button that logically navigates to another page (e.g. "Shop Men's" → /mens), make it <a href="/mens" class="...button classes..."> instead of <button>.
-- Never use onclick with inline JS if a real href path exists.
+Fill these keys (keys ending in [] = return array of values, one per item):
+${compactKeys.join(', ')}
 
-DESIGN STANDARDS (MANDATORY - make it stunning):
-- Use ONE consistent color scheme throughout all pages:
-  - Deep Slate & Blue (slate-950, blue-600) — default
-  - Dark Charcoal & Emerald (neutral-950, emerald-600)
-  - Midnight Navy & Indigo (indigo-950, indigo-600)
-  - Pure Black & Gold (black, amber-500)
-- Hero section: full-screen height (min-h-screen), centered content, large headline (text-5xl to text-7xl), subtitle, CTA buttons.
-- Navigation bar: sticky, glassmorphism effect (backdrop-blur, bg-white/5), light border.
-- HIGH CONTRAST: white or very light gray for text on dark backgrounds.
-- Feature/stat cards: rounded-2xl, shadow-xl, border border-white/5, hover:scale-[1.02] transition.
-- Typography: font-black headings, Inter font.
-- Section spacing: py-24 or py-32.
-- Include at minimum: Navbar with ALL site links, Hero, Features/Products (3-6 cards), CTA Banner, Footer with all page links.
+Key rules: _LINK/_URL=use a real slug from ${pageSlugList} | _IMG/_SEED=one descriptive word | _ICON=one emoji | _DAY=2-digit day | _MON=3-letter month | _ABBR=short abbreviation | LOGO_ABBR=2-3 uppercase letters | PAGE_TITLE=browser tab title
 
-USER REQUEST: ${prompt}`;
+Return ONLY valid JSON.`;
 
-      let responseText: string;
+      console.log(`[generateFullPageHTML] template=${templateType} slug=${currentSlug} keys=${placeholders.length}→${compactKeys.length} promptLen=${fillPrompt.length}`);
+
+      let jsonText: string;
 
       if (this.anthropic) {
         const message = await this.anthropic.messages.create({
           model: 'claude-3-5-sonnet-20241022',
-          max_tokens: 8000,
-          messages: [{ role: 'user', content: systemPrompt }],
+          max_tokens: 2000,
+          messages: [{ role: 'user', content: fillPrompt }],
         });
-        responseText = message.content[0].type === 'text' ? message.content[0].text : '';
+        jsonText = message.content[0].type === 'text' ? message.content[0].text : '{}';
       } else if (this.groq) {
+        await new Promise((r) => setTimeout(r, 300));
         const response = await this.groq.chat.completions.create({
           model: 'llama-3.3-70b-versatile',
-          messages: [{ role: 'user', content: systemPrompt }],
-          max_tokens: 8000,
+          messages: [{ role: 'user', content: fillPrompt }],
+          response_format: { type: 'json_object' },
+          max_tokens: 2000,
         });
-      responseText = response.choices[0].message.content || '';
+        jsonText = response.choices[0].message.content || '{}';
       } else {
         throw new AppError('AI service not configured', 503, 'AI_NOT_CONFIGURED');
       }
 
-      const cleanHtml = this.extractHTML(responseText);
+      // Strip markdown fences if AI ignored instructions
+      jsonText = jsonText.replace(/```json\s*/gi, '').replace(/```\s*/gi, '').trim();
 
-      return {
-        success: true,
-        html: cleanHtml,
-      };
+      let aiValues: Record<string, any> = {};
+      try {
+        aiValues = JSON.parse(jsonText);
+      } catch {
+        throw new Error(`AI returned invalid JSON: ${jsonText.slice(0, 200)}`);
+      }
+
+      // Expand compressed arrays back to numbered flat keys
+      const values: Record<string, string> = expandFn(aiValues);
+
+      // Always override these with our correct values
+      values['NAV_LINKS'] = navLinksHtml;
+      values['YEAR'] = String(year);
+
+      const filledHtml = this.fillTemplate(templateHtml, values);
+
+      console.log(`[generateFullPageHTML] done — filledLen=${filledHtml.length}`);
+
+      return { success: true, html: filledHtml };
+
     } catch (error: any) {
-      console.error('HTML generation error:', error?.response?.data || error);
-      return {
-        success: false,
-        error: error?.response?.data?.error?.message || error.message || 'Failed to generate page HTML',
-      };
+      let msg: string =
+        error?.response?.data?.error?.message ||
+        error?.message ||
+        'Failed to generate page HTML';
+
+      if (msg.includes('429') || msg.toLowerCase().includes('rate limit') || msg.toLowerCase().includes('tokens per day')) {
+        const waitMatch = msg.match(/try again in ([^.]+)/i);
+        msg = waitMatch
+          ? `AI daily limit reached. Try again in ${waitMatch[1]}.`
+          : 'AI daily token limit reached. Please try again in a few hours.';
+      }
+
+      console.error('[generateFullPageHTML] ERROR:', msg);
+      return { success: false, error: msg };
     }
   }
 
@@ -623,7 +721,7 @@ ${currentHtml}`;
         responseText = message.content[0].type === 'text' ? message.content[0].text : '';
       } else if (this.groq) {
         const response = await this.groq.chat.completions.create({
-          model: 'llama-3.3-70b-versatile',
+          model: 'llama-3.1-8b-instant',
           messages: [{ role: 'user', content: systemPrompt }],
           max_tokens: 8000,
         });

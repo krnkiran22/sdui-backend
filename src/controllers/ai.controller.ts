@@ -147,7 +147,7 @@ export class AIController {
       return sendError(res, 'Unauthorized', 401);
     }
 
-    const { prompt, currentSlug } = req.body;
+    const { prompt, currentSlug, templateType } = req.body;
     if (!prompt) {
       return sendError(res, 'Prompt is required', 400);
     }
@@ -161,6 +161,7 @@ export class AIController {
     const result = await aiService.generateFullPageHTML(prompt, { 
       pages: existingPages.map(p => ({ name: p.name, slug: p.slug })),
       currentSlug: currentSlug || undefined,
+      templateType: templateType || undefined,
     });
 
     if (result.success) {

@@ -356,8 +356,81 @@ Only return valid JSON. Do not include markdown code blocks or explanations.`;
     }
   }
 
+  // Plan a full multi-page website structure from a single prompt
+  async planSite(prompt: string): Promise<{
+    success: boolean;
+    pages?: Array<{ name: string; slug: string; purpose: string }>;
+    error?: string;
+  }> {
+    try {
+      const planPrompt = `You are a website architect. The user wants to build a website described below.
+Analyse the request and decide what PAGES this website needs.
+
+USER REQUEST: "${prompt}"
+
+RULES:
+- Return 3 to 7 pages. Always include a home page as the FIRST item.
+- Slugs must be lowercase, URL-safe, hyphens only (no spaces, no slashes).
+- "purpose" must describe exactly what content and sections appear on that page (2-3 sentences).
+- For e-commerce: include product-category pages (e.g. men, women, shoes) plus home and possibly cart/about.
+- Do NOT add pages that are not needed by the request.
+
+Respond with ONLY a JSON object in this exact shape (no markdown, no explanation):
+{
+  "pages": [
+    { "name": "Page Display Name", "slug": "url-slug", "purpose": "Detailed description of this page's content and sections." }
+  ]
+}`;
+
+      let responseText: string;
+
+      if (this.anthropic) {
+        const message = await this.anthropic.messages.create({
+          model: 'claude-3-5-sonnet-20241022',
+          max_tokens: 1500,
+          messages: [{ role: 'user', content: planPrompt }],
+        });
+        responseText = message.content[0].type === 'text' ? message.content[0].text : '{}';
+        // Strip markdown fences if present
+        responseText = responseText.replace(/```json\s*/gi, '').replace(/```\s*/gi, '').trim();
+      } else if (this.groq) {
+        const response = await this.groq.chat.completions.create({
+          model: 'llama-3.3-70b-versatile',
+          messages: [{ role: 'user', content: planPrompt }],
+          response_format: { type: 'json_object' },
+          max_tokens: 1500,
+        });
+        responseText = response.choices[0].message.content || '{}';
+      } else {
+        throw new AppError('AI service not configured', 503, 'AI_NOT_CONFIGURED');
+      }
+
+      const parsed = JSON.parse(responseText);
+      const pages: Array<{ name: string; slug: string; purpose: string }> = Array.isArray(parsed)
+        ? parsed
+        : (parsed.pages ?? []);
+
+      // Sanitize slugs just in case
+      const sanitized = pages.map((p) => ({
+        name: p.name,
+        slug: p.slug
+          .toLowerCase()
+          .replace(/\s+/g, '-')
+          .replace(/[^a-z0-9-]/g, '')
+          .replace(/-+/g, '-')
+          .replace(/^-|-$/g, ''),
+        purpose: p.purpose,
+      }));
+
+      return { success: true, pages: sanitized };
+    } catch (error: any) {
+      console.error('Site planning error:', error);
+      return { success: false, error: error.message || 'Failed to plan site' };
+    }
+  }
+
   // Generate a full page HTML using Tailwind CSS
-  async generateFullPageHTML(prompt: string, context: { pages: { name: string, slug: string }[] }): Promise<{
+  async generateFullPageHTML(prompt: string, context: { pages: { name: string, slug: string }[], currentSlug?: string }): Promise<{
     success: boolean;
     html?: string;
     error?: string;
@@ -367,7 +440,21 @@ Only return valid JSON. Do not include markdown code blocks or explanations.`;
     }
 
     try {
-      const pageLinks = context.pages.map(p => `<a href="/${p.slug}">${p.name}</a>`).join(', ');
+      const allPages = context.pages;
+      const currentSlug = context.currentSlug;
+
+      // Build navbar link list — mark the current page so AI can highlight it
+      const navLinks = allPages
+        .map((p) =>
+          p.slug === currentSlug
+            ? `<a href="/${p.slug}" class="ACTIVE">${p.name}</a>`
+            : `<a href="/${p.slug}">${p.name}</a>`
+        )
+        .join(', ');
+
+      const pageListText = allPages
+        .map((p, i) => `  ${i + 1}. "${p.name}" → /${p.slug}${p.slug === currentSlug ? ' ← THIS PAGE' : ''}`)
+        .join('\n');
 
       const systemPrompt = `You are a world-class frontend developer and UI/UX designer. Your task is to generate a complete, stunning, production-ready HTML landing page.
 
@@ -384,37 +471,40 @@ TECHNICAL REQUIREMENTS:
 - For subtle scroll animations, add a simple IntersectionObserver in a <script> at the bottom.
 - ALL images MUST use picsum.photos with a descriptive seed. Format:
     https://picsum.photos/seed/{SEED}/{WIDTH}/{HEIGHT}
-  Use descriptive seed words matching the content, for example:
-    - Hero background:    https://picsum.photos/seed/campus/1400/800
-    - Faculty photo:      https://picsum.photos/seed/professor/400/400
-    - Feature card image: https://picsum.photos/seed/technology/600/400
+  Use descriptive seed words matching the content:
+    - Hero background:    https://picsum.photos/seed/hero/1400/800
+    - Product card image: https://picsum.photos/seed/product1/600/400
     - Team member:        https://picsum.photos/seed/team1/300/300
-    - Testimonial avatar: https://picsum.photos/seed/student/80/80
-    - About section:      https://picsum.photos/seed/building/800/500
+    - Testimonial avatar: https://picsum.photos/seed/user1/80/80
+    - About section:      https://picsum.photos/seed/about/800/500
   NEVER use Unsplash or any other image service. ONLY picsum.photos.
   Add onerror="this.src='https://picsum.photos/seed/fallback/400/300'" to every <img> tag.
-- Navigation links available: ${pageLinks || '<a href="/">Home</a>'}
 
-IN-APP NAVIGATION (when the user asks for buttons or CTAs that go to another page):
-- Use real paths from the list above: <a href="/slug" class="..."> for any "Apply", "Go to X", "redirect", "next page", or similar request.
-- Prefer <a> styled as a button (same Tailwind as a button) over <button> without navigation.
-- Never use href="#" for CTAs that should open another page in this app when a matching slug exists in the navigation list.
+SITE NAVIGATION (CRITICAL — ALL pages must be reachable from the navbar):
+The full website has these pages — every page's navbar MUST link to ALL of them:
+${pageListText}
+- Navbar links available: ${navLinks || '<a href="/">Home</a>'}
+- Use these EXACT href paths. Never use "#" for inter-page links.
+- Mark the ACTIVE (current) page link with a highlighted style (e.g. underline, bold, border-b-2, or brighter color).
+- Every CTA button that says "Shop Now", "Browse", "Go to X", "Apply", etc. must also use these real href paths.
+
+BUTTON → PAGE REDIRECTS (CRITICAL):
+- If a section has a CTA or button that logically navigates to another page (e.g. "Shop Men's" → /mens), make it <a href="/mens" class="...button classes..."> instead of <button>.
+- Never use onclick with inline JS if a real href path exists.
 
 DESIGN STANDARDS (MANDATORY - make it stunning):
-- Use ONE of these modern color schemes (choose the most appropriate for the request):
-  - Deep Slate & Blue (slate-950, blue-600)
+- Use ONE consistent color scheme throughout all pages:
+  - Deep Slate & Blue (slate-950, blue-600) — default
   - Dark Charcoal & Emerald (neutral-950, emerald-600)
   - Midnight Navy & Indigo (indigo-950, indigo-600)
   - Pure Black & Gold (black, amber-500)
 - Hero section: full-screen height (min-h-screen), centered content, large headline (text-5xl to text-7xl), subtitle, CTA buttons.
 - Navigation bar: sticky, glassmorphism effect (backdrop-blur, bg-white/5), light border.
-- Contrast: Ensure HIGH CONTRAST. Never use text colors (like purple text) that blend into the background (like a purple gradient). Use white or very light gray for text on dark backgrounds.
-- Image Quality: Do NOT use heavy overlays that wash out or hide the images. If an image needs an overlay for text legibility, use a very subtle linear gradient at the bottom or a slight darkening (bg-black/20).
-- Use gradient text ONLY for emphasis on 2-3 words, not entire sentences: bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent.
-- Feature/stat cards: rounded-2xl, shadow-xl, border border-white/5, with hover:scale-[1.02] transition.
-- Typography: Large, bold font-black headings. Use 'Inter' font (force sans).
-- Section spacing: Use generous padding (py-24 or py-32) to let the design breathe.
-- Include at minimum: Navbar, Hero, Features/Services (3-6 cards), Stats section, Testimonials with avatars, CTA Banner, Detailed Footer.
+- HIGH CONTRAST: white or very light gray for text on dark backgrounds.
+- Feature/stat cards: rounded-2xl, shadow-xl, border border-white/5, hover:scale-[1.02] transition.
+- Typography: font-black headings, Inter font.
+- Section spacing: py-24 or py-32.
+- Include at minimum: Navbar with ALL site links, Hero, Features/Products (3-6 cards), CTA Banner, Footer with all page links.
 
 USER REQUEST: ${prompt}`;
 

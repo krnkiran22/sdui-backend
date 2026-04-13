@@ -71,6 +71,17 @@ router.get(
   aiController.getCustomComponents
 );
 
+// Plan a full multi-page website (returns page name/slug/purpose list)
+router.post(
+  '/plan-site',
+  authenticate,
+  aiLimiter,
+  validate([
+    body('prompt').trim().notEmpty().withMessage('Prompt is required'),
+  ]),
+  aiController.planSite
+);
+
 // Generate full page HTML
 router.post(
   '/generate-html',
@@ -78,6 +89,7 @@ router.post(
   aiLimiter,
   validate([
     body('prompt').trim().notEmpty().withMessage('Prompt is required'),
+    body('currentSlug').optional().trim(),
   ]),
   aiController.generatePageHTML
 );

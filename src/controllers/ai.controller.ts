@@ -121,8 +121,8 @@ export class AIController {
     return sendSuccess(res, components);
   });
 
-  // Generate a full page HTML using Groq/Claude
-  generatePageHTML = asyncHandler(async (req: Request, res: Response) => {
+  // Plan a multi-page site structure from a single prompt
+  planSite = asyncHandler(async (req: Request, res: Response) => {
     if (!req.user) {
       return sendError(res, 'Unauthorized', 401);
     }
@@ -132,14 +132,35 @@ export class AIController {
       return sendError(res, 'Prompt is required', 400);
     }
 
+    const result = await aiService.planSite(prompt);
+
+    if (result.success) {
+      return sendSuccess(res, { pages: result.pages }, 'Site planned successfully');
+    } else {
+      return sendError(res, result.error || 'Failed to plan site', 500);
+    }
+  });
+
+  // Generate a full page HTML using Groq/Claude
+  generatePageHTML = asyncHandler(async (req: Request, res: Response) => {
+    if (!req.user) {
+      return sendError(res, 'Unauthorized', 401);
+    }
+
+    const { prompt, currentSlug } = req.body;
+    if (!prompt) {
+      return sendError(res, 'Prompt is required', 400);
+    }
+
     // Get pages for link context
     const { Page } = await import('../models/Page.model');
     const existingPages = await Page.find({ 
       institutionId: req.user.institutionId 
-    }).select('name slug');
+    }).select('name slug').sort({ createdAt: 1 });
 
     const result = await aiService.generateFullPageHTML(prompt, { 
-      pages: existingPages.map(p => ({ name: p.name, slug: p.slug })) 
+      pages: existingPages.map(p => ({ name: p.name, slug: p.slug })),
+      currentSlug: currentSlug || undefined,
     });
 
     if (result.success) {
